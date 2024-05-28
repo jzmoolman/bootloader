@@ -1,44 +1,71 @@
 	.option norvc
 
+.macro push reg
+	addi sp,sp, -8
+	sd \reg, (sp)
+.endm
+
+.macro pop reg
+	ld \reg, (sp)
+	addi sp,sp, 8
+.endm
+
+	.equ STACKSIZE, 512
+	.equ DRAM_BASE, 0x80000000
+	
 	.section .data
 msg:	.ascii "ZBootloader\0"
 hart_msg:	.ascii "I am hart \0"
 newline:	.ascii "\n\0"
-	.balign 8
-hartlock:	.dword 0
-scratchpad:
-	.skip 512
+machinemode:	 .ascii "Mode: Machine\0"
+unknownmode:	 .ascii "Mode: Unknown\0"
+interupt_enabled:	 .ascii "Intertupts: Enabled\0"
+interupt_disabled:	 .ascii "Intertupts: Disabled\0"
 	
-	.section .text
+scratchpad:
+	.skip 8, 0
+	
+stack:
+	.skip STACKSIZE, 0
 
+	.section .text
 reset:
+	# Initialization 
+	la sp, stack  		    # setting up stack
+	addi sp, sp, STACKSIZE
+
+	li a0, DRAM_BASE
+	sd x0, (a0)
+
 	csrr t0, mhartid
 	bnez t0, 3f
 
+
+
 1:
-	la a0, hartlock
+        li  a0, DRAM_BASE
 	li a1, 0
 	li a2, 1
 	call _cas            
-	bnez a0, 1b	       # !0 then try again, spin
+	bnez a0, 1b	      	 # !0 then try again, spin
 
 	la a1, msg
 	call _writeln
+	call _sanity_check
 
 2:
-	la a0, hartlock
+        li a0, DRAM_BASE
 	li a1, 1
 	li a2, 0
 	call _cas            
 	bnez a0, 2b	       # !0 then try again, spin
 	
 3:
-	call _announce
+	# call _announce		
 	j _hang
 
 
 _putchar_uart:
-	mv s4, ra                # save return address
 	li t0, 0x10000000        # Base Address fo UART
 	li t1, 3 		 # Set to 8 bit
 	sb t1, 3(t0)             # 3 offset  = Line Control register 
@@ -46,31 +73,30 @@ _putchar_uart:
 	sb t1, 2(t0)             # 2 offset  = FIFO Contorl Register
 	lb t1, (a1)
 	sb t1, (t0)              # write to char to UART
-	mv ra, s4                # restore return address
 	ret
 
 _write_uart:
-	mv s3, ra                # save return address
+	push ra
 1:	call _putchar_uart
 	addi a1, a1, 1
 	lb t1, (a1)
-	bnez t1, 1b 
-	mv ra, s3                # restore return address
+	bnez t1, 1b
+	pop ra
 	ret
 
 _writeln:
-	mv s2, ra                # save return address
+        push ra
 	call _write_uart
 	la a1, newline
 	call _write_uart
-	mv ra, s2                # restore return address
+	pop ra
 	ret
 
 _announce:
 	mv s5, ra                # save return address
 
 1:
-	la a0, hartlock
+        li a0, DRAM_BASE
 	li a1, 0
 	li a2, 1
 
@@ -92,7 +118,10 @@ _announce:
 
 	#exit critical section, not sure what is the most effect way
 	
-2:	la a0, hartlock
+2:
+        li a0, DRAM_BASE
+	#lui  a0, %hi(DRAM_BASE)
+	#addi a0, a0, %lo(DRAM_BASE)
 	li a1, 1
 	li a2, 0
 
@@ -117,6 +146,45 @@ _cas:
 	
 1:	li a0, 1        	# set to fail
 	ret			# return
+
+
+	# Display inforation of hart
+	
+_sanity_check:
+	push ra
+	
+	csrr t0, mstatus
+	li t1, 3   		# 0000 0011
+	slli t1, t1, 11         # set bit 11 and 12 (lsb  = 0)
+	and t2, t1, t0
+	xor t3,	 t2, t1
+
+	bnez t2, 1f        	# branch if not machine mode
+	la a1, machinemode
+	call _writeln
+
+	li t1, 1
+	slli t1, t1, 3          # bit 3(lsb=0) is set if enterupts are enabled, otherwise 0  
+	add t2, t1, t0
+	xor t3, t2, t1
+	bnez t2, 3f        	# branch if interupt is disabled 
+	
+	la a1, interupt_enabled
+	call _writeln
+	j 2f
+3:
+	la a1, interupt_disabled
+	call _writeln
+	j 2f
+	
+1:
+	la a1, unknownmode
+	call _writeln
+
+2:
+	pop ra
+	ret
+	
 
 _hang:	
 

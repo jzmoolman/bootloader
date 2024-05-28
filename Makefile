@@ -8,7 +8,7 @@ all: $(bootrom_img)
 	@echo "IMAGE BUILD"
 
 %.img: %.bin
-	dd if=$< of=$@ bs=1024 count=1
+	dd if=$< of=$@ bs=2048 count=1
 	@echo "BIN BUILD"
 
 %.bin: %.elf
