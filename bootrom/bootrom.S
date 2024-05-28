@@ -1,5 +1,16 @@
 
-#define DRAM_BASE 0x80000000
+.equ DRAM_BASE, 0x80000000
+#.equ UART_BASE, 0x10000000
+.equ UART_BASE, 0x60010000
+
+.equ UART_RBR, 0x00         # RBR: Receiver buffer register [Read, LCR[6] == 0]
+.equ UART_THR, 0x00         # THR: Transmitter Holding register [Write, LCR[6] == 0]
+.equ UART_IER, 0x01         # IER: Interupt Enable Register [Read/Write, LCR[7] == 0]
+.equ UART_LCR, 0x03         # LCR: Line Conrol register [read/write]
+.equ UART_LSR, 0x05         # LSR: Line Status Register [read/write] 
+.equ UART_DLL, 0x00         # DDL: Divisor latch(lsb) [read/write] 
+.equ UART_DLM, 0x01         # DLM: Divosor latch(msb) [read/write]
+
 
 .section .text.start, "ax", @progbits
 .globl _start
@@ -9,10 +20,11 @@ _start:
 	csrr a0, mhartid
 	bnez a0, _hang
 
+	li a0, UART_BASE
+	call  _init_uart
 1:
-	la a0, msg
-	call _write_uart
-	la a0, msg
+	li a0, UART_BASE
+	la a1, msg
 	call _write_uart
 	j 1b
 
@@ -24,34 +36,68 @@ _hang:
   #csrr a0, mhartid
   #la a1, _dtb
 	csrwi mie, 0
-	la a0, msg1
-	call _write_uart
+	li a0, UART_BASE
+	li a2, 65
+	call _putchar_uart
+	#la a1, msg
+	#call _write_uart
 1:
   wfi
   j 1b
 
 	.section .text.uart, "ax", @progbits
 	.globl _uart
+
+	# a0 UART Base adress
+_init_uart:
+	// set 0x0080 to UART.LCR to enable DLL and DLM write
+	# configure baud rate
+	li t0, 0x80
+	sb t0, UART_LCR(a0) 	# Enable DLL  & DLM write
+
+        # divisor = clk_freq / (16 * Baud)
+	# DLL = clock freq / (16 * baudrate) % 0x100
+	# 100MHz and 115200 = 54 = 0x36
+	# DLM = clock freq / (16*baudrate) >> 8
+	# 100MHz and 115200 = 0
+
+	li t0, 0x36 
+	sb t0, UART_DLL(a0)
+	sb x0, UART_DLM(a0)
+
+        # 8-bit data, 1-bit odd parity
+	#li t0, 0x0b         	# 0x0b for 8 bit data, 1 stop bit, odd parity
+	li t0, 0x03         	# 0x03 for 8 bit data, 1 stop bit, no parity
+	sb t0, UART_LCR(a0)
+
+	# IRQ
+	#li t0, 0               # Disable interupt
+	#sb t0, UART_IER(a0)
 	
-_putchar_uart:
-	li t0, 0x10000000        # Base Address fo UART
-	li t1, 3 		 # Set to 8 bit
-	sb t1, 3(t0)             # 3 offset  = Line Control register 
-	li t1, 1 		 # Enable FIFO
-	sb t1, 2(t0)             # 2 offset  = FIFO Contol Register
-	lb t1, (a0)
-	sb t1, (t0)              # write to char to UART
 	ret
 
+	
+	# a0 UART_BASE address
+	# a2 char to send
+_putchar_uart:
+1:	lb t0, UART_LSR(a0)
+	andi t0, t0, 0x40    # 6 bit
+	#bnez t0, 1b
+	sb a2, UART_THR(a0)
+	ret
+
+	# a0 UART BASE Address
+	# a1 Address of string 
 _write_uart:
 	mv s0, ra
-1:
-	call _putchar_uart
-	addi a0, a0, 1
-	lb t1, (a0)
-	bnez t1, 1b
 
-	mv  ra, s0
+1:	lb a2, (a1)
+	beqz a2, 2f         #  value at a1 = \0  jump ret
+	call _putchar_uart
+	addi a1, a1, 1
+	j 1b
+
+2:	mv  ra, s0
 	ret
 	
 .section .rodata.dtb, "a", @progbits
