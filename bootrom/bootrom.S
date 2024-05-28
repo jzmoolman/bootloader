@@ -61,7 +61,7 @@ _init_uart:
 	# DLM = clock freq / (16*baudrate) >> 8
 	# 100MHz and 115200 = 0
 
-	li t0, 0x36 
+	li t0, 0x1 
 	sb t0, UART_DLL(a0)
 	sb x0, UART_DLM(a0)
 
@@ -82,7 +82,7 @@ _init_uart:
 _putchar_uart:
 1:	lb t0, UART_LSR(a0)
 	andi t0, t0, 0x40    # 6 bit
-	#bnez t0, 1b
+	beqz t0, 1b
 	sb a2, UART_THR(a0)
 	ret
 
