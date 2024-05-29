@@ -6,8 +6,11 @@
 .equ UART_RBR, 0x00         # RBR: Receiver buffer register [Read, LCR[6] == 0]
 .equ UART_THR, 0x00         # THR: Transmitter Holding register [Write, LCR[6] == 0]
 .equ UART_IER, 0x01         # IER: Interupt Enable Register [Read/Write, LCR[7] == 0]
+.equ UART_FCR, 0x02         # FCR: FIFO control
 .equ UART_LCR, 0x03         # LCR: Line Conrol register [read/write]
+.equ UART_MCR, 0x04         # Modem
 .equ UART_LSR, 0x05         # LSR: Line Status Register [read/write] 
+.equ UART_SCR, 0x07         # Scratch
 .equ UART_DLL, 0x00         # DDL: Divisor latch(lsb) [read/write] 
 .equ UART_DLM, 0x01         # DLM: Divosor latch(msb) [read/write]
 
@@ -50,29 +53,43 @@ _hang:
 
 	# a0 UART Base adress
 _init_uart:
-	// set 0x0080 to UART.LCR to enable DLL and DLM write
-	# configure baud rate
-	li t0, 0x80
-	sb t0, UART_LCR(a0) 	# Enable DLL  & DLM write
+	# IRQ
+	li t0, 0x00              # Disable interupt
+	sb t0, UART_IER(a0)
 
+	// set 0x0080 to UART.LCR to enable DLL and DLM write
+	# configure baud rate (DLAB)
         # divisor = clk_freq / (16 * Baud)
 	# DLL = clock freq / (16 * baudrate) % 0x100
 	# 100MHz and 115200 = 54 = 0x36
 	# DLM = clock freq / (16*baudrate) >> 8
 	# 100MHz and 115200 = 0
+	li t0, 0x80
+	sb t0, UART_LCR(a0) 	# Enable DLL  & DLM write
 
-	li t0, 0x1 
+	li t0, 0x36 
 	sb t0, UART_DLL(a0)
 	sb x0, UART_DLM(a0)
+
 
         # 8-bit data, 1-bit odd parity
 	#li t0, 0x0b         	# 0x0b for 8 bit data, 1 stop bit, odd parity
 	li t0, 0x03         	# 0x03 for 8 bit data, 1 stop bit, no parity
 	sb t0, UART_LCR(a0)
 
-	# IRQ
-	#li t0, 0               # Disable interupt
-	#sb t0, UART_IER(a0)
+	li t0, 0x01         	# Enable FIFI
+	sb t0, UART_FCR(a0)
+
+	li t0, 0x00
+	sb t0, UART_MCR(a0)     # No modem control
+ 
+	lb t0, UART_LCR(a0)    # Clear line status
+
+	lb t0, UART_RBR(a0)    # Read buffer
+
+	li t0, 0x00
+	sb t0, UART_SCR(a0)    # set scratchpad
+	
 	
 	ret
 
